@@ -1,0 +1,491 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 3.3 线性回归的简洁实现"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "随着深度学习框架的发展，开发深度学习应⽤变得越来越便利。实践中，我们通常可以⽤⽐上⼀节更简\n",
+    "洁的代码来实现同样的模型。在本节中，我们将介绍如何使⽤PyTorch更⽅便地实现线性回归的训练。"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 3.3.1 ⽣成数据集"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "我们⽣成与上⼀节中相同的数据集。其中 features 是训练数据特征， labels 是标签。"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 15,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import torch\n",
+    "import numpy as np\n",
+    "num_inputs = 2\n",
+    "num_examples = 1000\n",
+    "true_w = [2,-3.4]\n",
+    "true_b = 4.2\n",
+    "features = torch.tensor(np.random.normal(0,1,(num_examples,num_inputs)))\n",
+    "labels = true_w[0] * features[:,0] + true_w[1] * features[:,1] + true_b\n",
+    "labels += torch.tensor(np.random.normal(0,0.01,size = labels.size()),dtype = torch.float32)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 3.3.2 读取数据"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "PyTorch提供了 data 包来读取数据。由于 data 常⽤作变量名，我们将导⼊的 data 模块⽤ Data 代\n",
+    "替。在每⼀次迭代中，我们将随机读取包含10个数据样本的⼩批量。"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 16,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import torch.utils.data as Data\n",
+    "\n",
+    "batch_size =10\n",
+    "#将训练数据的特征和标签组合\n",
+    "dataset = Data.TensorDataset(features,labels)\n",
+    "#随机读取小批量\n",
+    "data_iter = Data.DataLoader(dataset,batch_size,shuffle = True)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "这⾥ data_iter 的使⽤跟上⼀节中的⼀样。让我们读取并打印第⼀个⼩批量数据样本"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 17,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "tensor([[ 1.0153, -1.2396],\n",
+      "        [ 0.1866, -0.4169],\n",
+      "        [ 0.4910,  0.0083],\n",
+      "        [ 1.2819, -0.8795],\n",
+      "        [-0.3057,  0.2529],\n",
+      "        [ 0.3979, -1.4554],\n",
+      "        [-1.1206,  1.0093],\n",
+      "        [ 0.3580,  2.4316],\n",
+      "        [ 1.0128, -1.1702],\n",
+      "        [-1.0910, -0.0915]], dtype=torch.float64) tensor([10.4408,  5.9940,  5.1349,  9.7583,  2.7280,  9.9548, -1.4712, -3.3669,\n",
+      "        10.1879,  2.3155], dtype=torch.float64)\n"
+     ]
+    }
+   ],
+   "source": [
+    "for X,y in data_iter:\n",
+    "    print(X,y)\n",
+    "    break"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 3.3.3 定义模型"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "在上⼀节从零开始的实现中，我们需要定义模型参数，并使⽤它们⼀步步描述模型是怎样计算的。当模\n",
+    "型结构变得更复杂时，这些步骤将变得更繁琐。其实，PyTorch提供了⼤量预定义的层，这使我们只需\n",
+    "关注使⽤哪些层来构造模型。下⾯将介绍如何使⽤PyTorch更简洁地定义线性回归"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "⾸先，导⼊ torch.nn 模块。实际上，“nn”是neural networks（神经⽹络）的缩写。顾名思义，该模\n",
+    "块定义了⼤量神经⽹络的层。之前我们已经⽤过了 autograd ，⽽ nn 就是利⽤ autograd 来定义模\n",
+    "型。 nn 的核⼼数据结构是 Module ，它是⼀个抽象概念，既可以表示神经⽹络中的某个层（layer），\n",
+    "也可以表示⼀个包含很多层的神经⽹络。在实际使⽤中，最常⻅的做法是继承 nn.Module ，撰写⾃⼰\n",
+    "的⽹络/层。⼀个 nn.Module 实例应该包含⼀些层以及返回输出的前向传播（forward）⽅法。下⾯先\n",
+    "来看看如何⽤ nn.Module 实现⼀个线性回归模型。"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 18,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "LinearNet(\n",
+      "  (linear): Linear(in_features=2, out_features=1, bias=True)\n",
+      ")\n"
+     ]
+    }
+   ],
+   "source": [
+    "import torch.nn as nn\n",
+    "class LinearNet(nn.Module):\n",
+    "    def __init__(self,n_features):\n",
+    "        super(LinearNet,self).__init__()\n",
+    "        self.linear = nn.Linear(n_features,1)\n",
+    "    \n",
+    "    def forward(self,x):\n",
+    "        y = self.linear(x)\n",
+    "        return y\n",
+    "    \n",
+    "net = LinearNet(num_inputs)\n",
+    "print(net)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "事实上我们还可以⽤ nn.Sequential 来更加⽅便地搭建⽹络， Sequential 是⼀个有序的容器，⽹络\n",
+    "层将按照在传⼊ Sequential 的顺序依次被添加到计算图中。"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 19,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "\"\\n# 写法⼆\\nnet = nn.Sequential()\\nnet.add_module('linear', nn.Linear(num_inputs, 1))\\n# net.add_module ......\\n# 写法三\\nfrom collections import OrderedDict\\nnet = nn.Sequential(OrderedDict([\\n ('linear', nn.Linear(num_inputs, 1))\\n # ......\\n ]))\\nprint(net)\\nprint(net[0])\\n\""
+      ]
+     },
+     "execution_count": 19,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "import torch.nn as nn\n",
+    "# 写法⼀\n",
+    "net = nn.Sequential(\n",
+    " nn.Linear(num_inputs, 1)\n",
+    " # 此处还可以传⼊其他层\n",
+    " )\n",
+    "\"\"\"\n",
+    "# 写法⼆\n",
+    "net = nn.Sequential()\n",
+    "net.add_module('linear', nn.Linear(num_inputs, 1))\n",
+    "# net.add_module ......\n",
+    "# 写法三\n",
+    "from collections import OrderedDict\n",
+    "net = nn.Sequential(OrderedDict([\n",
+    " ('linear', nn.Linear(num_inputs, 1))\n",
+    " # ......\n",
+    " ]))\n",
+    "print(net)\n",
+    "print(net[0])\n",
+    "\"\"\""
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "可以通过 net.parameters() 来查看模型所有的可学习参数，此函数将返回⼀个⽣成器。"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 20,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Parameter containing:\n",
+      "tensor([[-0.5745,  0.6596]], requires_grad=True)\n",
+      "Parameter containing:\n",
+      "tensor([0.1554], requires_grad=True)\n"
+     ]
+    }
+   ],
+   "source": [
+    "for param in net.parameters():\n",
+    "    print(param)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "注意： torch.nn 仅⽀持输⼊⼀个batch的样本不⽀持单个样本输⼊，如果只有单个样本，可使\n",
+    "⽤ input.unsqueeze(0) 来添加⼀维。"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 3.3.4 初始化模型参数"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "在使⽤ net 前，我们需要初始化模型参数，如线性回归模型中的权᯿和偏差。PyTorch在 init 模块中\n",
+    "提供了多种参数初始化⽅法。这⾥的 init 是 initializer 的缩写形式。我们通过 init.normal_ 将\n",
+    "权᯿参数每个元素初始化为随机采样于均值为0、标准差为0.01的正态分布。偏差会初始化为零。"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 21,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "Parameter containing:\n",
+       "tensor([0.], requires_grad=True)"
+      ]
+     },
+     "execution_count": 21,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "from torch.nn import init\n",
+    "\n",
+    "init.normal_(net[0].weight,mean = 0,std = 0.01)\n",
+    "init.constant_(net[0].bias,val = 0)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 3.3.5 定义损失函数"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "PyTorch在 nn 模块中提供了各种损失函数，这些损失函数可看作是⼀种特殊的层，PyTorch也将这些损\n",
+    "失函数实现为 nn.Module 的⼦类。我们现在使⽤它提供的均⽅误差损失作为模型的损失函数。"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 22,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "loss = nn.MSELoss()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 3.3.6 定义优化算法"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "同样，我们也⽆须⾃⼰实现⼩批量随机梯度下降算法。 torch.optim 模块提供了很多常⽤的优化算法\n",
+    "⽐如SGD、Adam和RMSProp等。下⾯我们创建⼀个⽤于优化 net 所有参数的优化器实例，并指定学\n",
+    "习率为0.03的⼩批量随机梯度下降（SGD）为优化算法。"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 23,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "SGD (\n",
+      "Parameter Group 0\n",
+      "    dampening: 0\n",
+      "    lr: 0.03\n",
+      "    momentum: 0\n",
+      "    nesterov: False\n",
+      "    weight_decay: 0\n",
+      ")\n"
+     ]
+    }
+   ],
+   "source": [
+    "import torch.optim as optim\n",
+    "\n",
+    "optimizer = optim.SGD(net.parameters(),lr = 0.03)\n",
+    "print(optimizer)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "我们还可以为不同⼦⽹络设置不同的学习率，这在finetune时经常⽤到。例"
+   ]
+  },
+  {
+   "cell_type": "raw",
+   "metadata": {},
+   "source": [
+    "optimizer =optim.SGD([\n",
+    " # 如果对某个参数不指定学习率，就使⽤最外层的默认学习率\n",
+    " {'params': net.subnet1.parameters()}, # lr=0.03\n",
+    " {'params': net.subnet2.parameters(), 'lr': 0.01}\n",
+    " ], lr=0.03)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "有时候我们不想让学习率固定成⼀个常数，那如何调整学习率呢？主要有两种做法。⼀种是修\n",
+    "改 optimizer.param_groups 中对应的学习率，另⼀种是更简单也是较为推荐的做法——新建优化\n",
+    "器，由于optimizer⼗分轻量级，构建开销很⼩，故⽽可以构建新的optimizer。但是后者对于使⽤动量\n",
+    "的优化器（如Adam），会丢失动量等状态信息，可能会造成损失函数的收敛出现震荡等情况。"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 24,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# 调整学习率\n",
+    "for param_group in optimizer.param_groups:\n",
+    " param_group['lr'] *= 0.1 # 学习率为之前的0.1倍"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### 3.3.7 训练模型"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "在使⽤Gluon训练模型时，我们通过调⽤ optim 实例的 step 函数来迭代模型参数。按照⼩批量随机梯\n",
+    "度下降的定义，我们在 step 函数中指明批量⼤⼩，从⽽对批量中样本梯度求平均。"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 25,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "epoch 1, loss: 13.627850\n",
+      "epoch 2, loss: 2.599608\n",
+      "epoch 3, loss: 0.897267\n"
+     ]
+    }
+   ],
+   "source": [
+    "num_epochs = 3\n",
+    "for epoch in range(1, num_epochs + 1):\n",
+    "     for X, y in data_iter:\n",
+    "            X = X.float()\n",
+    "            y = y.float()\n",
+    "            output = net(X)\n",
+    "            l = loss(output, y.view(-1, 1))\n",
+    "            optimizer.zero_grad() # 梯度清零，等价于net.zero_grad()\n",
+    "            l.backward()\n",
+    "            optimizer.step()\n",
+    "   \n",
+    "     print('epoch %d, loss: %f' % (epoch, l.item()))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 26,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "[2, -3.4] Parameter containing:\n",
+      "tensor([[ 1.7453, -2.7735]], requires_grad=True)\n",
+      "4.2 Parameter containing:\n",
+      "tensor([3.5193], requires_grad=True)\n"
+     ]
+    }
+   ],
+   "source": [
+    "dense = net[0]\n",
+    "print(true_w, dense.weight)\n",
+    "print(true_b, dense.bias)"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "pytorch with fastai",
+   "language": "python",
+   "name": "pytorch"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.7.0"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2
+}
